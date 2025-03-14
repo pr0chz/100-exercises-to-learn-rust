@@ -1,6 +1,12 @@
 // TODO: Define a function named `squared` that raises all `i32`s within a slice to the power of 2.
 //  The slice should be modified in place.
 
+fn squared(nums: &mut [u32]) -> () {
+    for i in 0..nums.len() {
+        nums[i] *= nums[i];
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -24,5 +30,13 @@ mod tests {
         let mut s = vec![2, 4];
         squared(&mut s);
         assert_eq!(s, vec![4, 16]);
+    }
+
+    #[test]
+    fn aaa() {
+        let mut numbers = Vec::with_capacity(2);
+        let a = &numbers;
+        let b = &numbers as &[i32];
+        let mut slice: &[i32] = &numbers;
     }
 }
