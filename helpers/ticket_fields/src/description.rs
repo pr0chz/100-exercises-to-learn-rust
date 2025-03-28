@@ -1,5 +1,5 @@
 #[derive(Debug, PartialEq, Clone, Eq)]
-pub struct TicketDescription(String);
+pub struct TicketDescription(pub String);
 
 #[derive(Debug, thiserror::Error)]
 pub enum TicketDescriptionError {

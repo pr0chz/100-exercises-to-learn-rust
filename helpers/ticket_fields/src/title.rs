@@ -1,7 +1,7 @@
 use std::convert::TryFrom;
 
 #[derive(Debug, PartialEq, Clone, Eq)]
-pub struct TicketTitle(String);
+pub struct TicketTitle(pub String);
 
 #[derive(Debug, thiserror::Error)]
 pub enum TicketTitleError {

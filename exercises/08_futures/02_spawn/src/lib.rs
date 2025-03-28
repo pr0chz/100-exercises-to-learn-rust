@@ -1,10 +1,35 @@
+use std::panic;
 use tokio::net::TcpListener;
+use tokio::task::JoinSet;
 
 // TODO: write an echo server that accepts TCP connections on two listeners, concurrently.
 //  Multiple connections (on the same listeners) should be processed concurrently.
 //  The received data should be echoed back to the client.
 pub async fn echoes(first: TcpListener, second: TcpListener) -> Result<(), anyhow::Error> {
-    todo!()
+    async fn listen(listener: TcpListener) -> Result<(), anyhow::Error> {
+        loop {
+            let (mut stream, _addr) = listener.accept().await.unwrap();
+
+            tokio::spawn(async move {
+                let (mut reader, mut writer) = stream.split();
+                tokio::io::copy(&mut reader, &mut writer).await.unwrap();
+            });
+        }
+    }
+
+    let mut join_set = JoinSet::new();
+    join_set.spawn(listen(first));
+    join_set.spawn(listen(second));
+
+    while let Some(outcome) = join_set.join_next().await {
+        if let Err(e) = outcome {
+            if let Ok(reason) = e.try_into_panic() {
+                panic::resume_unwind(reason);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
