@@ -7,6 +7,10 @@ use crate::data::{Status, Ticket, TicketDraft};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TicketId(pub u64);
 
+impl From<u64> for TicketId {
+    fn from(id: u64) -> Self { TicketId(id) }
+}
+
 #[derive(Clone)]
 pub struct TicketStore {
     lock: Arc<RwLock<TicketStoreInternal>>,

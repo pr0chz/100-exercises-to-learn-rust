@@ -1,4 +1,5 @@
 use serde::Serialize;
+use tide::convert::Deserialize;
 use crate::store::TicketId;
 use ticket_fields::{TicketDescription, TicketTitle};
 
@@ -16,7 +17,7 @@ pub struct TicketDraft {
     pub description: TicketDescription,
 }
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
     ToDo,
     InProgress,
