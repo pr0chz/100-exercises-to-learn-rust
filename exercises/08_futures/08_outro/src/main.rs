@@ -4,6 +4,7 @@ use outro_08::store::{TicketId, TicketStore};
 use ticket_fields::{TicketDescription, TicketTitle};
 use tide::prelude::*;
 use tide::{Body, Request, Response, StatusCode};
+use tokio::net::TcpListener;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(remote = "TicketTitle")]
@@ -48,17 +49,26 @@ impl TryInto<data::TicketDraft> for CreateTicketRequest {
 }
 
 #[tokio::main]
-async fn main() -> tide::Result<()> {
-    run_server().await
+async fn main() -> std::io::Result<()> {
+    let listener = listen(Some(8080)).await?;
+    run_server(listener).await
 }
 
-async fn run_server() -> tide::Result<()> {
+async fn listen(port: Option<u16>) -> std::io::Result<TcpListener> {
+    let bind_addr = format!("127.0.0.1:{}", port.unwrap_or(0));
+    let listener = TcpListener::bind(bind_addr).await?;
+    let local_addr = listener.local_addr()?;
+    println!("Server listening on {}", local_addr);
+    Ok(listener)
+}
+
+async fn run_server(listener: TcpListener) -> std::io::Result<()> {
     let store = TicketStore::new();
     let mut app = tide::with_state(store);
     app.at("/tickets").post(new_ticket);
     app.at("/tickets/:id").get(get_ticket);
-    app.listen("127.0.0.1:8080").await?;
-    Ok(())
+    // Use the listener for the Tide app
+    app.listen(listener.into_std()?).await
 }
 
 async fn new_ticket(mut req: Request<TicketStore>) -> tide::Result {
@@ -91,10 +101,11 @@ async fn get_ticket(req: Request<TicketStore>) -> tide::Result {
 
 #[cfg(test)]
 mod tests {
-    use crate::{run_server, CreateTicketRequest, CreateTicketResponse, GetTicketResponse};
+    use crate::{listen, run_server, CreateTicketRequest, CreateTicketResponse, GetTicketResponse};
     use futures::future;
     use outro_08::data::{Status, Ticket};
     use outro_08::store::TicketId;
+    use std::net::SocketAddr;
     use surf;
     use surf::Response;
 
@@ -105,44 +116,48 @@ mod tests {
         }
     }
 
-    async fn create_ticket(ticket_request: &CreateTicketRequest) -> Response {
-        surf::post("http://localhost:8080/tickets")
+    async fn create_ticket(address: &SocketAddr, ticket_request: &CreateTicketRequest) -> Response {
+        surf::post(format!("http://{}/tickets", address))
             .body_json(&ticket_request).unwrap().await.unwrap()
     }
 
-    async fn get_ticket(ticket_id: TicketId) -> Response {
-        let uri = format!("http://localhost:8080/tickets/{}", &ticket_id.0);
+    async fn get_ticket(address: &SocketAddr, ticket_id: TicketId) -> Response {
+        let uri = format!("http://{}/tickets/{}", address, &ticket_id.0);
         surf::get(uri).await.unwrap()
     }
 
 
     #[tokio::test]
     async fn basic_server() {
-        let a = tokio::spawn(run_server());
+        let listener = listen(None).await.unwrap();
+        let address = listener.local_addr().unwrap().clone();
+        let server = tokio::spawn(run_server(listener));
 
         let create_ticket_req = create_ticket_request(1);
 
-        let mut response = create_ticket(&create_ticket_req).await;
+        let mut response = create_ticket(&address, &create_ticket_req).await;
 
         assert_eq!(response.status(), 200);
         let response_body: CreateTicketResponse = response.body_json().await.unwrap();
         assert_eq!(response_body.ticket_id, 0.into());
 
-        a.abort();
+        server.abort();
     }
 
     #[tokio::test]
     async fn multiple_tickets_are_properly_stored_and_can_be_retrieved() {
-        let server = tokio::spawn(run_server());
+        let listener = listen(None).await.unwrap();
+        let address = listener.local_addr().unwrap().clone();
+        let server = tokio::spawn(run_server(listener));
 
-        async fn create_and_get_ticket(n: u64) -> () {
+        async fn create_and_get_ticket(address: &SocketAddr, n: u64) -> () {
             let new_ticket_req = create_ticket_request(n);
-            let mut new_ticket_resp = create_ticket(&new_ticket_req).await;
+            let mut new_ticket_resp = create_ticket(address, &new_ticket_req).await;
 
             assert_eq!(new_ticket_resp.status(), 200);
             let ticket_id: TicketId = new_ticket_resp.body_json::<CreateTicketResponse>().await.unwrap().ticket_id;
 
-            let mut get_ticket_resp = get_ticket(ticket_id).await;
+            let mut get_ticket_resp = get_ticket(address, ticket_id).await;
             assert_eq!(get_ticket_resp.status(), 200);
             let retreived_ticket: Ticket = get_ticket_resp.body_json::<GetTicketResponse>().await.unwrap().0;
 
@@ -155,7 +170,7 @@ mod tests {
         }
 
         let requests = (1..3)
-            .map(create_and_get_ticket)
+            .map(|i| create_and_get_ticket(&address, i))
             .collect::<Vec<_>>();
 
         future::join_all(requests).await;
