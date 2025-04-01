@@ -2347,6 +2347,7 @@ dependencies = [
  "futures",
  "serde",
  "surf",
+ "thiserror 2.0.12",
  "ticket_fields",
  "tide",
  "tokio",
