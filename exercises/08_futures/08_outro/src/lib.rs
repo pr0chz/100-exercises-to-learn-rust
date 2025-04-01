@@ -10,3 +10,4 @@
 // (if any) to build this system.
 pub mod data;
 pub mod store;
+pub mod server;
