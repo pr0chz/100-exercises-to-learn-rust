@@ -139,6 +139,26 @@ mod tests {
     use surf;
     use surf::Response;
     use tide::StatusCode;
+    use tokio::task::JoinHandle;
+
+    struct TestServer(SocketAddr, JoinHandle<Result<(), std::io::Error>>);
+
+    impl TestServer {
+        pub async fn new() -> TestServer {
+            let listener = listen(None).await.unwrap();
+            let address = listener.local_addr().unwrap().clone();
+            let server = tokio::spawn(run_server(listener));
+            TestServer(address, server)
+        }
+
+        pub fn address(&self) -> &SocketAddr { &self.0 }
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            self.1.abort();
+        }
+    }
 
     fn create_ticket_request(n: u64) -> CreateTicketRequest {
         CreateTicketRequest {
@@ -160,26 +180,20 @@ mod tests {
 
     #[tokio::test]
     async fn basic_server_functions() {
-        let listener = listen(None).await.unwrap();
-        let address = listener.local_addr().unwrap().clone();
-        let server = tokio::spawn(run_server(listener));
+        let server = TestServer::new().await;
 
         let create_ticket_req = create_ticket_request(1);
 
-        let mut response = create_ticket(&address, &create_ticket_req).await;
+        let mut response = create_ticket(server.address(), &create_ticket_req).await;
 
         assert_eq!(response.status(), 200);
         let response_body: CreateTicketResponse = response.body_json().await.unwrap();
         assert_eq!(response_body.ticket_id, 0.into());
-
-        server.abort();
     }
 
     #[tokio::test]
     async fn multiple_tickets_are_properly_stored_and_can_be_retrieved() {
-        let listener = listen(None).await.unwrap();
-        let address = listener.local_addr().unwrap().clone();
-        let server = tokio::spawn(run_server(listener));
+        let server = TestServer::new().await;
 
         async fn create_and_get_ticket(address: &SocketAddr, n: u64) -> () {
             let new_ticket_req = create_ticket_request(n);
@@ -201,57 +215,43 @@ mod tests {
         }
 
         let requests = (1..3)
-            .map(|i| create_and_get_ticket(&address, i))
+            .map(|i| create_and_get_ticket(server.address(), i))
             .collect::<Vec<_>>();
 
         future::join_all(requests).await;
-
-        server.abort();
     }
 
     #[tokio::test]
     async fn malformed_new_ticket_request() {
-        let listener = listen(None).await.unwrap();
-        let address = listener.local_addr().unwrap().clone();
-        let server = tokio::spawn(run_server(listener));
+        let server = TestServer::new().await;
 
-        let response = surf::post(format!("http://{}/tickets", address))
+        let response = surf::post(format!("http://{}/tickets", server.address()))
             .body_string("not a json".to_string()).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::BadRequest);
-
-        server.abort();
     }
 
     #[tokio::test]
     async fn malformed_get_request() {
-        let listener = listen(None).await.unwrap();
-        let address = listener.local_addr().unwrap().clone();
-        let server = tokio::spawn(run_server(listener));
+        let server = TestServer::new().await;
 
         let ticket_req = CreateTicketRequest {
             title: "Really really long title, so long that it does not really fit in and it will fail validation and everything will blow up".to_string(),
             description: "Description".to_string(),
         };
 
-        let response = create_ticket(&address, &ticket_req).await;
+        let response = create_ticket(server.address(), &ticket_req).await;
 
         assert_eq!(response.status(), StatusCode::BadRequest);
-
-        server.abort();
     }
 
     #[tokio::test]
     async fn ticket_not_found() {
-        let listener = listen(None).await.unwrap();
-        let address = listener.local_addr().unwrap().clone();
-        let server = tokio::spawn(run_server(listener));
+        let server = TestServer::new().await;
 
-        let response = get_ticket(&address, TicketId(333)).await;
+        let response = get_ticket(server.address(), TicketId(333)).await;
 
         assert_eq!(response.status(), StatusCode::NotFound);
-
-        server.abort();
     }
 
 }
